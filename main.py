@@ -9,8 +9,10 @@ import copy
 
 
 class Builder():
-    def __init__(self):
-        pass
+    def __init__(self, max_num_of_stacks = 10, num_of_mutations = 10, x=None, y = None):
+
+
+        gen_0_stacks = [Stack() for _ in range(max_num_of_stacks)]
 
 
 class Stack():
@@ -23,8 +25,6 @@ class Stack():
 
     #gen 0 model creation
     def generate_first_models(self, x, y):
-        self.input_layer = Input_Layer(x)
-
         for i in range(self.max_layers):
             self.model_layers.append([])
             next_model = Model()
@@ -36,6 +36,7 @@ class Stack():
                 else:
                     next_model_input_layers.append(i.valid_indexes)
             next_model.set_input_layers(next_model_input_layers[-1])
+            self.input_layers[i+1].add_input()
             self.model_layers[-1].append(next_model)
         final_model = Model()
 
@@ -48,30 +49,50 @@ class Stack():
 
     def generate_mutated_model(self):
         '''
-        if model = maximum num of models and a model is elegible for deletion, delete random eligible model
+        if model = maximum num of models and a model is elegible for deletion, delete random eligible model, not implemented
 
         if model < maximum num of models, add random model to random layer
 
         pick random model, reset hyperparameters
+
+        reset final model
         :return:
         '''
 
         stack_copy = copy.deepcopy(self)
+        if stack_copy.get_model_count() < stack_copy.max_models:
+            layer = random.randint(0, stack_copy.max_layers - 1)
 
-
-
+            added_model = Model(output_index = self.input_layers[layer] + 1)
+            next_model_input_layers = []
+            for i in range(layer):
+                if len(self.input_layers[i].valid_indexes) > self.min_input_layer_choice:
+                    next_model_input_size = random.randint(self.min_input_layer_choice, len(self.input_layers[i].valid_indexes))
+                    next_model_input_layers.append(random.sample(self.input_layers[i].valid_indexes, next_model_input_size))
+                else:
+                    next_model_input_layers.append(self.input_layers[i].valid_indexes)
+            added_model.set_input_layers(next_model_input_layers[-1])
+            self.input_layers[layer + 1].add_input()
+            self.model_layers[layer].append(added_model)
         pass
 
     def get_indexes_of_models_elegible_for_deletion(self):
-        for i in range(self.max_layers, 0):
+        for i in range(0, self.max_layers):
             pass
+
+    def get_model_count(self):
+        return sum([len(i) for i in self.model_layers])
 
 
 #generalized model wrapper to be able to use same functions on different implementations of models
 class Model():
 
-    def __init__(self):
+    def __init__(self, output_index = 0):
         self.clf = ensemble.AdaBoostClassifier()
+        self.output_index = output_index
+
+    def set_random_hyperparameters(self):
+        pass
 
     def set_input_layers(self, input_layers):
         pass
