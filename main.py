@@ -10,8 +10,6 @@ import copy
 
 class Builder():
     def __init__(self, max_num_of_stacks = 10, num_of_mutations = 10, x=None, y = None):
-
-
         gen_0_stacks = [Stack() for _ in range(max_num_of_stacks)]
 
 
@@ -23,7 +21,7 @@ class Stack():
         self.model_layers = []
         self.min_input_layer_choice = 1
 
-    #gen 0 model creation
+
     def generate_first_models(self, x, y):
         for i in range(self.max_layers):
             self.model_layers.append([])
@@ -50,11 +48,8 @@ class Stack():
     def generate_mutated_model(self):
         '''
         if model = maximum num of models and a model is elegible for deletion, delete random eligible model, not implemented
-
         if model < maximum num of models, add random model to random layer
-
         pick random model, reset hyperparameters
-
         reset final model
         :return:
         '''
@@ -76,9 +71,11 @@ class Stack():
             self.model_layers[layer].append(added_model)
         pass
 
+
     def get_indexes_of_models_elegible_for_deletion(self):
         for i in range(0, self.max_layers):
             pass
+
 
     def get_model_count(self):
         return sum([len(i) for i in self.model_layers])
@@ -91,22 +88,55 @@ class Model():
         self.clf = ensemble.AdaBoostClassifier()
         self.output_index = output_index
 
+
     def set_random_hyperparameters(self):
         pass
+
 
     def set_input_layers(self, input_layers):
         pass
 
+
     def fit(self, x, y):
         self.clf.fit(x, y)
+
 
     def score(self, x, y):
         return
 
+
 class Input_Layer():
 
-    def __init__(self, x):
-        self.valid_indexes = [i for i in range(x.shape(0))]
 
-    def add_input(self):
-        self.valid_indexes.append(max(self.valid_indexes) + 1)
+    def __init__(self, x, is_first_layer):
+        self.input_nodes = []
+        if is_first_layer:
+            self.input_nodes = [Node(i) for i in range(x.shape[1])]
+
+
+    def add_node(self, n):
+        self.input_nodes.append(n)
+
+
+    def load(self, x):
+        for i, n in zip(x.T, self.input_nodes):
+            n.load(i)
+
+
+    def dump(self, n_ids):
+        called_input_nodes = [i for i in self.input_nodes.n_id if i.n_id in n_ids]
+        called_input_nodes = sorted(called_input_nodes, key= lambda x: x.n_id)
+        return np.hstack([i.dump() for i in called_input_nodes])
+
+
+class Node():
+
+    def __init__(self, n_id):
+        self.n_id = n_id
+        self.value = None
+
+    def load(self, x):
+        self.value = x
+
+    def dump(self):
+        return self.value
