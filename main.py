@@ -13,6 +13,8 @@ import itertools
 import gc
 import os
 import pickle
+from graphviz import Graph, Digraph
+
 
 num_of_models = 5
 
@@ -24,13 +26,13 @@ def create_directory(directory):
 
 
 class Builder():
-    def __init__(self, max_num_of_stacks = 10, mutations_per_model = 5, x=None, y = None, serialize_dir = ''):
+    def __init__(self, max_num_of_stacks = 10, mutations_per_model = 1, x=None, y = None, serialize_dir = '', max_generations = 100):
         stacks = [Stack(gen=0, x=x, y=y) for _ in range(max_num_of_stacks)]
         save_dir = create_directory(serialize_dir + 'model_stacking_save_dir')
         score_dicts = []
 
         gen_count = 0
-        while True:
+        for _ in range(max_generations):
             gen_count += 1
             train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=.2)
 
@@ -86,12 +88,12 @@ class Builder():
 
 
 class Stack():
-    def __init__(self, max_layers = 3, max_models = 50, x = None, y = None, gen = 0):
+    def __init__(self, max_layers = 4, max_models = 25, x = None, y = None, gen = 0):
         self.gen = 0
         self.max_layers = max_layers
         self.max_models = max_models
         #self.output_model = None
-        self.model_layers = [[] for _ in range(max_layers + 1)]
+        self.model_layers = [[] for _ in range(max_layers)]
         self.min_input_layer_choice = 1
         self.input_layer = [Node(0, i) for i in range(x.shape[1])]
         self.output_node = Node(max_layers + 1, 0)
@@ -120,10 +122,15 @@ class Stack():
 
 
     def get_valid_inputs_for_layer(self, l):
-        if l == 0:
-            return self.get_input_layer_at_layer_l(0)
-        else:
-            return self.get_input_layer_at_layer_l(0) + self.get_input_layer_at_layer_l(l)
+        nodes = []
+
+        for i in range(l+1):
+            nodes.extend(self.get_input_layer_at_layer_l(i))
+        return nodes
+        # if l == 0 or l == 1:
+        #     return self.get_input_layer_at_layer_l(0)
+        # else:
+        #     return self.get_input_layer_at_layer_l(0) + self.get_input_layer_at_layer_l(l - 1)
 
 
     def generate_first_model(self):
@@ -177,7 +184,7 @@ class Stack():
         create model if valid to do so
         '''
         if stack_copy.get_model_count() < stack_copy.max_models:
-            layer_to_create_model_on = random.randint(0, stack_copy.max_layers - 1)
+            layer_to_create_model_on = random.randint(0, stack_copy.max_layers - 2)
             valid_inputs = stack_copy.get_valid_inputs_for_layer(layer_to_create_model_on)
             model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
             model_output = Node(layer_to_create_model_on + 1, stack_copy.get_next_n_id(layer_to_create_model_on + 1))
@@ -203,13 +210,13 @@ class Stack():
         changing_model = stack_copy.model_layers[-1][0]
         layer_to_create_model_on = changing_model.l_id
         valid_inputs = stack_copy.get_valid_inputs_for_layer(layer_to_create_model_on)
-        model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
-        changing_model.reset_model(model_inputs)
+        #model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
+        changing_model.reset_model(valid_inputs)
 
         stack_copy.gen = self.gen + 1
         return stack_copy
 
-    def train(self, x, y):
+    def train(self, x, y, n_folds = 'auto'):
         '''
         Given data and labels this splits it into folds and iteratively trains each layer
         on the outputs of previous models which predict a fold it has not trained on.
@@ -217,22 +224,21 @@ class Stack():
 
         #print(self.gen, len(self.input_layer))
 
-        xs = np.array_split(x, 2)
-        ys = np.array_split(y, 2)
+        if n_folds == 'auto':
+            split_num = self.max_layers
+            xs = np.array_split(x, split_num)
+            ys = np.array_split(y, split_num)
+        elif isinstance(n_folds, int):
+            split_num = n_folds
+            xs = np.array_split(x, split_num)
+            ys = np.array_split(y, split_num)
+        else:
+            raise AttributeError('n_folds must be an int or "auto"')
 
-        x1 = xs[0]
-        x2 = xs[1]
-
-        y1 = ys[0]
-        y2 = ys[1]
 
         for l_count, l in enumerate(self.model_layers):
-            if l_count % 2 == 1:
-                train_x = x1
-                train_y = y1
-            else:
-                train_x = x2
-                train_y = y2
+            train_x = xs[l_count%split_num]
+            train_y = ys[l_count%split_num]
 
             self.load_input_layer(train_x)
             for prev_l_index in range(0, l_count):
@@ -266,6 +272,17 @@ class Stack():
 
     def select_random_model(self):
         return random.choice(self.get_model_list())
+
+    def generate_dot_file(self):
+        g = Digraph('G {0}'.format(self.gen), filename='process.gv', engine='sfdp')
+
+        for i in self.get_model_list():
+            for n in i.input_nodes:
+                if n.l_id == 0:
+                    continue
+                g.edge('node {0} {1}'.format(n.l_id, n.n_id), 'model {0} {1} {2}'.format(i.__class__.__name__, i.l_id, id(i)))
+            g.edge( 'model {0} {1} {2}'.format(i.__class__.__name__, i.l_id, id(i)), 'node {0} {1}'.format(i.output_node.l_id, i.output_node.n_id))
+        g.save('process2.gv')
 
 
 class Model():
@@ -321,7 +338,7 @@ class Model():
 
     def predict(self, x, y):
         input_x = self.get_input()
-        self.output_node.load(self.clf.predict(input_x))
+        self.output_node.load(self.clf.predict_proba(input_x)[:,0])
 
     def score(self, x, y):
         input_x = self.get_input()
@@ -437,11 +454,8 @@ class Node():
         return self.value
 
 
-
-
-
-if __name__ == '__main__':
-    df = pd.read_csv('income.csv', nrows = 1000,
+def test_income_dataset():
+    df = pd.read_csv('income.csv', nrows = 5000,
                      names=['age', 'workclass', 'fnlwgt', 'education', 'education-num', 'marital-status', 'occupation',
                             'relationship', 'race', 'sex', 'capital-gain', 'capital-loss', 'hours-per-week', 'native-country', 'y'])
     le = sklearn.preprocessing.LabelEncoder()
@@ -456,4 +470,16 @@ if __name__ == '__main__':
     x = x_df.as_matrix()
     y = y_df.as_matrix()
     Builder(x=x, y=y)
+
+
+def test_graph():
+    with open('model_stacking_save_dir/14.plk', 'rb') as infile:
+        stack = pickle.load(infile)
+
+    stack.generate_dot_file()
+
+
+if __name__ == '__main__':
+    test_income_dataset()
+    test_graph()
 
