@@ -2,6 +2,7 @@ from sklearn.datasets import load_boston
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn import ensemble, neighbors, tree
+from sklearn.metrics import accuracy_score
 from sklearn import base
 import sklearn.linear_model
 import random
@@ -14,6 +15,9 @@ import gc
 import os
 import pickle
 from graphviz import Graph, Digraph
+import xgboost as xgb
+import lightgbm as lgb
+import catboost
 
 
 num_of_models = 5
@@ -43,8 +47,7 @@ class Builder():
             clf.fit(train_x, train_y)
             single_gbm_score = clf.score(test_x, test_y)
 
-            print('single gbm:', single_gbm_score)
-            print('single rf:', single_rf_score)
+
             gen_score_dict = {'single_gbm_score':single_gbm_score,
                               'single_rf_score':single_rf_score}
 
@@ -69,6 +72,8 @@ class Builder():
 
             stacks = stacks[:max_num_of_stacks]
             print('\n')
+            print(gen_count, 'single gbm:', single_gbm_score)
+            print(gen_count, 'single rf:', single_rf_score)
             for i in stacks:
                 print(gen_count, i.gen, i.last_tested_score, i.get_model_count(), str(id(i)))
             print('\n')
@@ -88,7 +93,7 @@ class Builder():
 
 
 class Stack():
-    def __init__(self, max_layers = 3, max_models = 12, x = None, y = None, gen = 0):
+    def __init__(self, max_layers = 4, max_models = 16, x = None, y = None, gen = 0):
         self.gen = 0
         self.max_layers = max_layers
         self.max_models = max_models
@@ -343,18 +348,30 @@ class Stack():
     def get_random_model(self, l_id, input_nodes=None, output_node=None):
         model_index = random.randint(0, num_of_models -1)
 
-        if model_index == 0:
-            return AdaBoostClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
-        if model_index == 1:
-            return RandomForestClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
-        if model_index == 2:
-            return ExtraTreesClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
-        if model_index == 3:
-            return GradientBoostingClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
-        if model_index == 4:
-            return DecisionTreeClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
-        # if model_index == 5:
-        #     return KNeighborsClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
+        possible_models = ['AdaBoostClassifierModel',
+                           'RandomForestClassifierModel',
+                           'ExtraTreesClassifierModel',
+                           'GradientBoostingClassifierModel',
+                           'DecisionTreeClassifierModel',
+                           'XGBoosterModel',
+                           #'CatboostRegressorModel',
+                           'LGBMRegressorModel'
+                           ]
+
+        return eval(random.choice(possible_models))(l_id, input_nodes=input_nodes, output_node=output_node)
+
+        # if model_index == 0:
+        #     return AdaBoostClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
+        # if model_index == 1:
+        #     return RandomForestClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
+        # if model_index == 2:
+        #     return ExtraTreesClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
+        # if model_index == 3:
+        #     return GradientBoostingClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
+        # if model_index == 4:
+        #     return DecisionTreeClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
+        # # if model_index == 5:
+        # #     return KNeighborsClassifierModel(l_id, input_nodes=input_nodes, output_node=output_node)
 
 
     def generate_dot_file(self):
@@ -399,7 +416,9 @@ class Model():
         selected_hyper_parameters = dict()
 
         for i, j in self.hyperparam_ranges.items():
-            if isinstance(j[0], int) and len(j) == 2:
+            if len(j) == 1:
+                selected_hyper_parameters[i] = j[0]
+            elif isinstance(j[0], int) and len(j) == 2:
                 selected_hyper_parameters[i] = random.randint(j[0], j[1])
             elif isinstance(j[0], float):
                 selected_hyper_parameters[i] = random.uniform(j[0],j[-1])
@@ -516,17 +535,116 @@ class DecisionTreeClassifierModel(Model):
     def load_model(self):
         self.clf =  tree.DecisionTreeClassifier(**self.set_hyperparameters)
 
-#
-# class KNeighborsClassifierModel(Model):
-#
-#     def __init__(self, l_id, input_nodes = None, output_node = None):
-#         super().__init__( l_id, input_nodes = input_nodes, output_node = output_node)
-#         self.hyperparam_ranges = {'n_neighbors':[3,20],
-#                                   'weights':['uniform', 'distance'],
-#                                   'algorithm':['auto', 'ball_tree', 'kd_tree', 'brute'],
-#                                   'leaf_size':[10, 100],
-#                                   'n_jobs': [-1, -1, -1]}
-#         self.clf = neighbors.KNeighborsClassifier(**self.get_random_hyperparameters())
+class XGBoosterModel(Model):
+
+    def __init__(self, l_id, input_nodes = None, output_node = None):
+        super().__init__( l_id, input_nodes = input_nodes, output_node = output_node)
+        self.hyperparam_ranges = {'eta': [.01,.3],
+                                  'min_child_weight ': [1,5],
+                                  'max_depth': [3,10],
+                                  'subsample': [.5, 1],
+                                  'nthread':[12],
+                                  'silent':[1],
+                                  'verbose_eval':[False]}
+        self.set_hyperparameters = dict()
+        #self.clf = xgb.Booster(params=self.get_random_hyperparameters())
+
+    '''loading happens at fitting'''
+    def load_model(self):
+        pass
+        #self.clf =  xgb.Booster(**self.set_hyperparameters)
+
+
+    def predict(self, x, y):
+        input_x = self.get_input()
+        dtest = xgb.DMatrix(input_x)
+        self.output_node.load(self.clf.predict(dtest))
+        return self.output_node.dump()
+
+
+    def score(self, x, y):
+        input_x = self.get_input()
+        preds = self.predict(input_x, y)
+        prediction = np.rint(preds)
+
+        self.last_tested_score = accuracy_score(prediction, y)
+        return self.last_tested_score
+
+
+    def fit(self, x, y):
+        input_x = self.get_input()
+        dtrain = xgb.DMatrix(input_x, y)
+        self.clf = xgb.train(self.set_hyperparameters, dtrain)
+
+
+class CatboostRegressorModel(Model):
+
+    def __init__(self, l_id, input_nodes = None, output_node = None):
+        super().__init__( l_id, input_nodes = input_nodes, output_node = output_node)
+        self.hyperparam_ranges = {'iterations':[100, 500],
+                                  'learning_rate': [.01, .2],
+                                  'depth': [2,12]
+                                  }
+        self.set_hyperparameters = dict()
+        self.clf = catboost.CatBoostRegressor(**self.get_random_hyperparameters())
+
+    def load_model(self):
+        self.clf =  catboost.CatBoostRegressor(**self.set_hyperparameters)
+
+
+    def score(self, x, y):
+        input_x = self.get_input()
+        prediction = np.rint(self.clf.predict(input_x, y))
+
+        self.last_tested_score = accuracy_score(prediction, y)
+        return self.last_tested_score
+
+
+
+
+class LGBMRegressorModel(Model):
+
+    def __init__(self, l_id, input_nodes = None, output_node = None):
+        super().__init__( l_id, input_nodes = input_nodes, output_node = output_node)
+        self.hyperparam_ranges = {
+                                'num_leaves': [15, 31, 63],
+                                'objective': 'binary',
+                                'min_data_in_leaf': [10, 200],
+                                'learning_rate': [.01, .2],
+                                'bagging_fraction': [.7, .9],
+                                'bagging_freq': [2],
+                                'num_threads': [12],
+                                'scale_pos_weight':[.5, 2.0],
+                                'silent':[True]
+                            }
+        self.set_hyperparameters = dict()
+        #self.clf = lgb.Booster(params = self.get_random_hyperparameters())
+
+    '''loading happens at fitting'''
+    def load_model(self):
+        pass
+        #self.clf = lgb.Booster(params = self.set_hyperparameters)
+
+    def fit(self, x, y):
+        input_x = self.get_input()
+        dtrain = lgb.Dataset(input_x, label=y)
+        self.clf = lgb.train(params = self.set_hyperparameters, train_set=dtrain)
+
+
+    def predict(self, x, y):
+        input_x = self.get_input()
+        dtest = lgb.Dataset(input_x)
+        self.output_node.load(self.clf.predict(input_x))
+        return self.output_node.dump()
+
+
+    def score(self, x, y):
+        input_x = self.get_input()
+        preds = self.predict(input_x, y)
+        prediction = np.rint(preds)
+
+        self.last_tested_score = accuracy_score(prediction, y)
+        return self.last_tested_score
 
 
 class Node():
@@ -562,7 +680,7 @@ def test_income_dataset():
 
 
 def test_graph():
-    with open('model_stacking_save_dir/111.plk', 'rb') as infile:
+    with open('model_stacking_save_dir/13.plk', 'rb') as infile:
         stack = pickle.load(infile)
 
     stack.generate_dot_file()
@@ -584,7 +702,7 @@ def compare_best_model():
     y = y_df.as_matrix()
     train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=.2)
 
-    with open('model_stacking_save_dir/111.plk', 'rb') as infile:
+    with open('model_stacking_save_dir/73.plk', 'rb') as infile:
         stack = pickle.load(infile)
 
     stack.load_models()
@@ -605,144 +723,11 @@ def compare_best_model():
     print('single_gbm_score:', single_gbm_score)
 
 
-def rank_df(df, columns, name):
-    print('rank', columns)
-    df2 = df.groupby(columns).count().add_suffix('_count').reset_index()
-    df2 = df2[columns + ['counting_column_count']]
-    df2[name] = df2['counting_column_count'].rank(method='dense')
-    max_rank = max(df2[name])
-    df2[name] /= max_rank
-    df2 = df2[columns + [name]]
-    df2[name] = df2[name].astype('float32')
-    df = df.merge(df2, on=columns)
-    return df
-
-def count_df(df, columns, name):
-    print('count', columns)
-    df[name] = df.groupby(columns).cumcount()
-    df[name] = df[name].astype('uint16')
-    return df
-
-def time_since_last(df, columns, name):
-    print('time_since_last', columns)
-    df[name] = df.groupby(columns)['click_time'].diff()
-    df[name] = df[name].fillna(-1)
-    df[name] = df[name].astype(int)
-    mean_std = df.groupby(columns)[name].agg([np.median, np.std]).reset_index()
-    df = df.merge(mean_std, on = columns)
-    df[name] = df[name].fillna(-1)
-    df[name + '_std'] = df['std'].fillna(-1)
-    df[name + '_median'] = df['median'].fillna(-1)
-    df = df.drop(['median', 'std'], axis = 1)
-    return df
-
-def time_till_next(df, columns, name):
-    print('time_till_next', columns)
-    df[name] = df.groupby(columns)['click_time'].transform(
-        lambda x: x.diff().shift(-1))
-    df[name] = df[name].fillna(-1)
-    df[name] = df[name].astype(int)
-    mean_std = df.groupby(columns)[name].agg([np.median, np.std]).reset_index()
-    df = df.merge(mean_std, on = columns)
-    df[name] = df[name].fillna(-1)
-    df[name + '_std'] = df['std'].fillna(-1)
-    df[name + '_median'] = df['median'].fillna(-1)
-    df = df.drop(['median', 'std'], axis = 1)
-    return df
-
-def preproccess_df(df):
-    print(df.shape, df.columns)
-    df['counting_column'] = 1
-
-    df['datetime'] = df['click_time'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
-    df['click_hour'] = df['datetime'].apply(lambda x: x.hour).astype('uint8')
-    df['click_day'] = df['datetime'].apply(lambda x: x.day).astype('uint8')
-    df['click_second'] = df['datetime'].apply(lambda x: x.second).astype('uint8')
-    df['click_minute'] = df['datetime'].apply(lambda x: x.minute).astype('uint8')
-    #df['click_minute'] /= 60 #TODO: change to 60 on new models
-    df['click_time'] = df['datetime'].apply(lambda x: x.timestamp())
-    df = df.drop(['datetime'], axis = 1)
-
-    df = df.sort_values(by=['click_time'])
-
-    df['click_hour'] = df['click_hour'].apply(lambda x: 5 if x == 6 else 10 if x == 11 else 14)
-
-
-    print('time added', df.shape)
-    #
-
-
-    possible_names = ['ip', 'device', 'os', 'channel', 'click_day']
-
-    # for l in range(len(possible_names)):
-    #     combinations = itertools.combinations(possible_names, l+1)
-    #     for i in combinations:
-    #         if 'click_day' not in i or len(i) == 1 or len(i) == 5:
-    #             continue
-    #         print(i, time.time() - start_time)
-    #         df = time_since_last(df, list(i), '_'.join(i)+'_next')
-    #         gc.collect()
-    #         # df = time_till_next(df, list(i), '_'.join(i) + '_last')
-    #         # gc.collect()
-
-
-    rank_list = [['ip', 'os', 'device', 'channel', 'click_day'],
-                 ['ip', 'device', 'os', 'click_day']]
-    for i in rank_list:
-        df = time_since_last(df, list(i), '_'.join(i) + '_last')
-        gc.collect()
-        df = time_till_next(df, list(i), '_'.join(i) + '_next')
-        gc.collect()
-        df = count_df(df, list(i), '_'.join(i) + '_count')
-        gc.collect()
-
-
-    rank_list = [['ip', 'click_day'],
-                 ['ip', 'device', 'click_day'],
-                 ['ip', 'os', 'click_day'],
-                 ['device', 'os', 'click_day'],
-                 ['ip', 'device', 'channel', 'click_day'],
-                 ['channel', 'click_day'],
-                 ['ip', 'device', 'os', 'click_day'],
-                 ['ip', 'channel', 'click_day'],
-                 ['device', 'os', 'channel', 'click_day'],
-                 ['os', 'channel', 'click_day'],
-                 ['device', 'click_day'],
-                 ['device', 'channel', 'click_day'],
-                 ['os', 'click_day'],
-                 ['app', 'channel', 'click_day']]
-    for i in rank_list:
-        df = rank_df(df, list(i), '_'.join(i) + '_rank')
-        df = df.sort_values(by=['click_time'])
-        gc.collect()
-
-    # count_lists = [
-    #             ['ip', 'device', 'os', 'channel', 'app'],
-    #             ['click_hour', 'click_day', 'ip', 'device', 'os'],
-    #                ['click_hour', 'click_day', 'ip', 'device', 'os', 'channel'],
-    #                ['click_hour', 'click_day', 'ip', 'device', 'os', 'channel', 'app']]
-    #
-    # print(time.time() - start_time)
-    # for i in count_lists:
-    #     df = rank_df(df, list(i), '_'.join(i) + '_rank')
-
-    df['device'] = df['device'].astype('int')
-    df['os'] = df['os'].astype('int')
-    df['channel'] = df['channel'].astype('int')
-    df['click_hour'] = df['click_hour'].astype('int')
-    df = df.drop(['ip','click_time', 'counting_column', 'click_day', 'click_day'], axis=1)
-
-
-    print(df.shape)
-
-
-    #df.drop(['counting_column'], axis=1, inplace=True)
-    return df
-
 
 def compare_best_model2():
     df = pd.read_csv(r'C:\Users\tdelforge\Documents\Kaggle_datasets\fraud\proccessed_train2.csv', sep = '|')
     print(df.columns)
+    df = df.sample(n = 10000000)
     df_pos = df.loc[df['is_attributed'] == 1]
     df_neg = df.loc[df['is_attributed'] == 0]
     df_neg = df_neg.sample(n = df_pos.shape[0])
@@ -782,20 +767,6 @@ def compare_best_model2():
     single_gbm_score = clf.score(test_x, test_y)
     print('single_gbm_score:', single_gbm_score)
 
-    path = r'C:/Users/tdelforge/Documents/Kaggle_datasets/fraud/'
-    test1 = pd.read_csv(path + "test.csv")
-
-    sub = pd.DataFrame()
-    sub['click_id'] = test1['click_id']
-
-    test1.drop('click_id', axis=1, inplace=True)
-    test1 = preproccess_df(test1)
-
-
-    stack.load_models()
-    stack.train(x, y)
-    stack.predict()
-    stack.del_models()
 
 
 
@@ -911,8 +882,8 @@ def test_titanic():
 
 if __name__ == '__main__':
     #test_income_dataset()
-    #test_graph()
+    test_graph()
     #compare_best_model()
     #test_titanic()
-    compare_best_model2()
+    # compare_best_model2()
 
