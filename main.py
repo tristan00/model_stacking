@@ -100,6 +100,8 @@ class Builder():
             df = pd.DataFrame.from_dict(score_dicts)
             df.to_csv('stack_results.csv')
 
+            test_graph(gen_count)
+
 
 
 
@@ -114,7 +116,7 @@ class Stack():
         self.input_layer = [Node(0, i) for i in range(x.shape[1])]
         self.output_node = Node(max_layers + 1, 0)
         self.generate_first_model()
-        # self.generate_random_stack()
+        self.generate_random_stack()
         self.last_tested_score = 0
 
 
@@ -150,7 +152,7 @@ class Stack():
         '''
         remove model if valid to do so
         '''
-        if stack_copy.get_model_count() >= stack_copy.max_models and del_model == 1:
+        if stack_copy.get_model_count() >= 2 and del_model == 1:
             stack_copy.reset_model()
 
 
@@ -159,7 +161,6 @@ class Stack():
         '''
         if stack_copy.get_model_count() < stack_copy.max_models and create_model == 1:
             stack_copy.add_model()
-
 
 
         '''
@@ -182,29 +183,35 @@ class Stack():
 
     def add_edge(self):
         models = self.get_model_list()
+
         models.remove(self.model_layers[-1][0])
-        model_to_modify = random.choice(models)
-        valid_inputs = self.get_valid_inputs_for_layer(model_to_modify.l_id)
-        valid_inputs = [i for i in valid_inputs if i not in model_to_modify.input_nodes]
-        if len(valid_inputs) > 0:
-            model_to_modify.input_nodes.append(random.choice(valid_inputs))
+        if len(models) > 0:
+            model_to_modify = random.choice(models)
+            valid_inputs = self.get_valid_inputs_for_layer(model_to_modify.l_id)
+            valid_inputs = [i for i in valid_inputs if i not in model_to_modify.input_nodes]
+            if len(valid_inputs) > 0:
+                model_to_modify.input_nodes.append(random.choice(valid_inputs))
 
 
     def remove_edge(self):
         models = self.get_model_list()
         models.remove(self.model_layers[-1][0])
-        model_to_modify = random.choice(models)
+        if len(models) > 0:
 
-        if len(model_to_modify.input_nodes) > 2:
-            model_to_modify.input_nodes.remove(random.choice(model_to_modify.input_nodes))
+            model_to_modify = random.choice(models)
+
+            if len(model_to_modify.input_nodes) > 2:
+                model_to_modify.input_nodes.remove(random.choice(model_to_modify.input_nodes))
 
 
     def remove_model(self):
         model_list = self.get_model_list()
         model_list.remove(self.model_layers[-1][0])
-        model_to_remove = random.choice(model_list)
-        self.remove_model(model_to_remove)
-        self.input_layer.remove(model_to_remove.output_node)
+        if len(model_list) > 0:
+
+            model_to_remove = random.choice(model_list)
+            self.remove_model(model_to_remove)
+            self.input_layer.remove(model_to_remove.output_node)
 
 
     def add_model(self):
@@ -220,13 +227,14 @@ class Stack():
     def reset_model(self):
         model_list = self.get_model_list()
         model_list.remove(self.model_layers[-1][0])
-        changing_model = random.choice(model_list)
-        self.change_model(changing_model)
-        layer_to_create_model_on = changing_model.l_id
-        valid_inputs = self.get_valid_inputs_for_layer(layer_to_create_model_on)
-        model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
-        changing_model.reset_model(model_inputs)
-        changing_model.set_random_hyparameters()
+        if len(model_list) > 0:
+            changing_model = random.choice(model_list)
+            self.change_model(changing_model)
+            layer_to_create_model_on = changing_model.l_id
+            valid_inputs = self.get_valid_inputs_for_layer(layer_to_create_model_on)
+            model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
+            changing_model.reset_model(model_inputs)
+            changing_model.set_random_hyparameters()
 
 
     def train(self, x, y, n_folds = 'auto'):
@@ -371,15 +379,8 @@ class Stack():
         creates a random set of models
         '''
 
-        models_per_layer = self.max_models//self.max_layers
-        for l in range(len(self.model_layers)):
-
-            valid_inputs = self.get_valid_inputs_for_layer(l)
-            for m in range(models_per_layer):
-                model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
-                model_output = Node(l + 1,
-                                    self.get_next_n_id(l))
-                self.model_layers[l].append(self.get_random_model(l, model_inputs, model_output))
+        for l in range(self.max_models):
+            self.add_model()
 
 
     def get_next_n_id(self, l):
@@ -735,8 +736,8 @@ def test_income_dataset():
     Builder(x=x, y=y)
 
 
-def test_graph():
-    with open('model_stacking_save_dir/483.plk', 'rb') as infile:
+def test_graph(gen):
+    with open('model_stacking_save_dir/{0}.plk'.format(gen), 'rb') as infile:
         stack = pickle.load(infile)
 
     stack.generate_dot_file()
@@ -975,8 +976,6 @@ def test_numerai(generations = 200):
     x, cluster_models = preproccess(x, None)
     y = training_data["target"].as_matrix()
 
-    x_design, _, y_design, _ = train_test_split(x, y, train_size=.3)
-
     Builder(x=x, y=y, max_generations=generations)
     with open('model_stacking_save_dir/{0}.plk'.format(generations), 'rb') as infile:
         stack = pickle.load(infile)
@@ -995,9 +994,9 @@ def test_numerai(generations = 200):
 
 if __name__ == '__main__':
     # test_income_dataset()
-    #test_graph()
+    # test_graph(1)
     #compare_best_model()
-    #test_titanic()
+    # test_titanic()
     # compare_best_model2()
     test_numerai()
 
