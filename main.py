@@ -130,87 +130,104 @@ class Stack():
 
         stack_copy = copy.deepcopy(self)
 
-
-        if mutation_level == 'random':
-            light_mutation = random.randint(0,1)
-        else:
-            light_mutation =0
-
-        if light_mutation == 1 and len(stack_copy.get_model_list()) > 1:
-            add_edge = random.randint(0, 1)
-            remove_edge = random.randint(0, 1)
-
-            if add_edge == 1:
-                models = stack_copy.get_model_list()
-                models.remove(stack_copy.model_layers[-1][0])
-                model_to_modify = random.choice(models)
-                valid_inputs = stack_copy.get_valid_inputs_for_layer(model_to_modify.l_id)
-                valid_inputs = [i for i in valid_inputs if i not in model_to_modify.input_nodes]
-                if len(valid_inputs)>0:
-                    model_to_modify.input_nodes.append(random.choice(valid_inputs))
-            if remove_edge == 1:
-                models = stack_copy.get_model_list()
-                models.remove(stack_copy.model_layers[-1][0])
-                model_to_modify = random.choice(models)
-
-                if len(model_to_modify.input_nodes)>2:
-                    model_to_modify.input_nodes.remove(random.choice(model_to_modify.input_nodes))
-
-        else:
-            reset_model = random.randint(0, 1)
-            # create_model = random.randint(0, 1)
-            del_model = random.randint(0, 1)
-
-            '''
-            remove model if valid to do so
-            '''
-            if stack_copy.get_model_count() >= stack_copy.max_models and del_model == 1:
-                model_list = stack_copy.get_model_list()
-                model_list.remove(stack_copy.model_layers[-1][0])
-                model_to_remove = random.choice(model_list)
-                stack_copy.remove_model(model_to_remove)
-                stack_copy.input_layer.remove(model_to_remove.output_node)
-
-
-            '''
-            create model if valid to do so
-            '''
-            if stack_copy.get_model_count() < stack_copy.max_models:
-                layer_to_create_model_on = random.randint(0, stack_copy.max_layers - 2)
-                valid_inputs = stack_copy.get_valid_inputs_for_layer(layer_to_create_model_on)
-                model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
-                model_output = Node(layer_to_create_model_on + 1, stack_copy.get_next_n_id(layer_to_create_model_on + 1))
-                stack_copy.input_layer.append(model_output)
-                stack_copy.model_layers[layer_to_create_model_on].append(stack_copy.get_random_model(layer_to_create_model_on, input_nodes=model_inputs, output_node=model_output))
+        add_edge = random.randint(0, 1)
+        remove_edge = random.randint(0, 1)
+        reset_model = random.randint(0, 1)
+        #create_model = random.randint(0, 1)
+        create_model = 1
+        del_model = random.randint(0, 1)
 
 
 
-            '''
-            reset random model
-            '''
-            if reset_model == 1 and len(stack_copy.get_model_list()) > 1:
-                model_list = stack_copy.get_model_list()
-                model_list.remove(stack_copy.model_layers[-1][0])
-                changing_model = random.choice(model_list)
-                stack_copy.change_model(changing_model)
-                layer_to_create_model_on = changing_model.l_id
-                valid_inputs = stack_copy.get_valid_inputs_for_layer(layer_to_create_model_on)
-                model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
-                changing_model.reset_model(model_inputs)
-                changing_model.set_random_hyparameters()
+
+        if add_edge == 1:
+            stack_copy.add_edge()
+
+        if remove_edge == 1:
+            stack_copy.remove_edge()
 
 
-            '''
-            reset final model, possible change to model type
-            '''
-            changing_model = stack_copy.model_layers[-1][0]
-            layer_to_create_model_on = changing_model.l_id
-            valid_inputs = stack_copy.get_valid_inputs_for_layer(layer_to_create_model_on)
-            new_model = stack_copy.get_random_model(layer_to_create_model_on, input_nodes=valid_inputs, output_node=changing_model.output_node)
-            stack_copy.model_layers[-1][0] = new_model
+        '''
+        remove model if valid to do so
+        '''
+        if stack_copy.get_model_count() >= stack_copy.max_models and del_model == 1:
+            stack_copy.reset_model()
+
+
+        '''
+        create model if valid to do so
+        '''
+        if stack_copy.get_model_count() < stack_copy.max_models and create_model == 1:
+            stack_copy.add_model()
+
+
+
+        '''
+        reset random model
+        '''
+        if reset_model == 1 and len(stack_copy.get_model_list()) > 1:
+            stack_copy.reset_model()
+
+        '''
+        reset final model, possible change to model type
+        '''
+        changing_model = stack_copy.model_layers[-1][0]
+        layer_to_create_model_on = changing_model.l_id
+        valid_inputs = stack_copy.get_valid_inputs_for_layer(layer_to_create_model_on)
+        new_model = stack_copy.get_random_model(layer_to_create_model_on, input_nodes=valid_inputs, output_node=changing_model.output_node)
+        stack_copy.model_layers[-1][0] = new_model
 
         stack_copy.gen = self.gen + 1
         return stack_copy
+
+    def add_edge(self):
+        models = self.get_model_list()
+        models.remove(self.model_layers[-1][0])
+        model_to_modify = random.choice(models)
+        valid_inputs = self.get_valid_inputs_for_layer(model_to_modify.l_id)
+        valid_inputs = [i for i in valid_inputs if i not in model_to_modify.input_nodes]
+        if len(valid_inputs) > 0:
+            model_to_modify.input_nodes.append(random.choice(valid_inputs))
+
+
+    def remove_edge(self):
+        models = self.get_model_list()
+        models.remove(self.model_layers[-1][0])
+        model_to_modify = random.choice(models)
+
+        if len(model_to_modify.input_nodes) > 2:
+            model_to_modify.input_nodes.remove(random.choice(model_to_modify.input_nodes))
+
+
+    def remove_model(self):
+        model_list = self.get_model_list()
+        model_list.remove(self.model_layers[-1][0])
+        model_to_remove = random.choice(model_list)
+        self.remove_model(model_to_remove)
+        self.input_layer.remove(model_to_remove.output_node)
+
+
+    def add_model(self):
+        layer_to_create_model_on = random.randint(0, self.max_layers - 2)
+        valid_inputs = self.get_valid_inputs_for_layer(layer_to_create_model_on)
+        model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
+        model_output = Node(layer_to_create_model_on + 1, self.get_next_n_id(layer_to_create_model_on + 1))
+        self.input_layer.append(model_output)
+        self.model_layers[layer_to_create_model_on].append(
+            self.get_random_model(layer_to_create_model_on, input_nodes=model_inputs, output_node=model_output))
+
+
+    def reset_model(self):
+        model_list = self.get_model_list()
+        model_list.remove(self.model_layers[-1][0])
+        changing_model = random.choice(model_list)
+        self.change_model(changing_model)
+        layer_to_create_model_on = changing_model.l_id
+        valid_inputs = self.get_valid_inputs_for_layer(layer_to_create_model_on)
+        model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
+        changing_model.reset_model(model_inputs)
+        changing_model.set_random_hyparameters()
+
 
     def train(self, x, y, n_folds = 'auto'):
         '''
