@@ -33,7 +33,7 @@ def create_directory(directory):
 
 
 class Builder():
-    def __init__(self, max_num_of_stacks = 3, mutations_per_model = 3, x=None, y = None, serialize_dir = '', max_generations = 2, errors = 'ignore'):
+    def __init__(self, max_num_of_stacks = 5, mutations_per_model = 10, x=None, y = None, serialize_dir = '', max_generations = 100, errors = 'ignore'):
         stacks = [Stack(gen=0, x=x, y=y) for _ in range(max_num_of_stacks)]
         save_dir = create_directory(serialize_dir + 'model_stacking_save_dir')
         score_dicts = []
@@ -43,7 +43,7 @@ class Builder():
             gen_count += 1
             train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=.2)
 
-            clf = ensemble.RandomForestClassifier(n_estimators=100)
+            clf = ensemble.RandomForestClassifier(n_jobs=-1)
             clf.fit(train_x, train_y)
             single_rf_score = clf.score(test_x, test_y)
             clf = ensemble.GradientBoostingClassifier()
@@ -944,35 +944,35 @@ def preproccess(x, models):
     return x.as_matrix(), models
 
 
-def test_numerai():
+def test_numerai(generations = 200):
 
     path = r'C:\Users\tdelforge\Documents\Kaggle_datasets\numerai\numerai_datasets/'
     training_data = pd.read_csv(path + 'numerai_training_data.csv', header=0)
     prediction_data = pd.read_csv(path + 'numerai_tournament_data.csv', header=0)
+    print('data read')
 
     # Transform the loaded CSV data into numpy arrays
     features = [f for f in list(training_data) if "feature" in f]
 
     x = training_data[features]
-    # x, cluster_models = preproccess(x, None)
-    # y = training_data["target"]
-    x = x.as_matrix()
+    x, cluster_models = preproccess(x, None)
     y = training_data["target"].as_matrix()
 
+    x_design, _, y_design, _ = train_test_split(x, y, train_size=.3)
 
-    Builder(x=x, y=y)
-    with open('model_stacking_save_dir/2.plk', 'rb') as infile:
+    Builder(x=x, y=y, max_generations=generations)
+    with open('model_stacking_save_dir/{0}.plk'.format(generations), 'rb') as infile:
         stack = pickle.load(infile)
 
     x_prediction = prediction_data[features]
-    # x_prediction, cluster_models = preproccess(x_prediction, cluster_models)
-    x_prediction = x_prediction.as_matrix()
-    ids = prediction_data["id"]
+    x_prediction, cluster_models = preproccess(x_prediction, cluster_models)
+    ids = prediction_data["id"].to_frame()
 
     stack.load_models()
     stack.train(x, y)
     ids['probability'] = stack.predict(x_prediction)
     stack.del_models()
+    ids.to_csv("predictions.csv", index=False)
 
 
 
