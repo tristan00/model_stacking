@@ -18,7 +18,10 @@ from graphviz import Graph, Digraph
 import xgboost as xgb
 import lightgbm as lgb
 import catboost
-
+import traceback
+import fastcluster
+import hdbscan
+from sklearn.cluster import MiniBatchKMeans
 
 num_of_models = 5
 
@@ -30,7 +33,7 @@ def create_directory(directory):
 
 
 class Builder():
-    def __init__(self, max_num_of_stacks = 10, mutations_per_model = 2, x=None, y = None, serialize_dir = '', max_generations = 100):
+    def __init__(self, max_num_of_stacks = 3, mutations_per_model = 3, x=None, y = None, serialize_dir = '', max_generations = 2, errors = 'ignore'):
         stacks = [Stack(gen=0, x=x, y=y) for _ in range(max_num_of_stacks)]
         save_dir = create_directory(serialize_dir + 'model_stacking_save_dir')
         score_dicts = []
@@ -62,11 +65,19 @@ class Builder():
             del next_gen_stacks
             gc.collect()
 
+            failed_models = []
             for i in stacks:
-                i.load_models()
-                i.train(train_x, train_y)
-                i.score(test_x, test_y)
-                i.del_models()
+                try:
+                    i.load_models()
+                    i.train(train_x, train_y)
+                    i.score(test_x, test_y)
+                    i.del_models()
+                except:
+                    traceback.print_exc()
+                    failed_models.append(i)
+
+            for i in failed_models:
+                stacks.remove(i)
 
             stacks.sort(key=lambda i: i.last_tested_score, reverse=True)
 
@@ -103,6 +114,7 @@ class Stack():
         self.input_layer = [Node(0, i) for i in range(x.shape[1])]
         self.output_node = Node(max_layers + 1, 0)
         self.generate_first_model()
+        # self.generate_random_stack()
         self.last_tested_score = 0
 
 
@@ -133,7 +145,7 @@ class Stack():
                 models.remove(stack_copy.model_layers[-1][0])
                 model_to_modify = random.choice(models)
                 valid_inputs = stack_copy.get_valid_inputs_for_layer(model_to_modify.l_id)
-                valid_inputs = [i for i in valid_inputs if valid_inputs not in model_to_modify.input_nodes]
+                valid_inputs = [i for i in valid_inputs if i not in model_to_modify.input_nodes]
                 if len(valid_inputs)>0:
                     model_to_modify.input_nodes.append(random.choice(valid_inputs))
             if remove_edge == 1:
@@ -334,7 +346,23 @@ class Stack():
         valid_inputs = self.get_valid_inputs_for_layer(self.max_layers)
         model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
 
-        self.model_layers[-1].append(self.get_random_model(len(self.model_layers), model_inputs, self.output_node))
+        self.model_layers[-1].append(self.get_random_model(len(self.model_layers) - 1, model_inputs, self.output_node))
+
+
+    def generate_random_stack(self):
+        '''
+        creates a random set of models
+        '''
+
+        models_per_layer = self.max_models//self.max_layers
+        for l in range(len(self.model_layers)):
+
+            valid_inputs = self.get_valid_inputs_for_layer(l)
+            for m in range(models_per_layer):
+                model_inputs = random.sample(valid_inputs, random.randint(2, len(valid_inputs)))
+                model_output = Node(l + 1,
+                                    self.get_next_n_id(l))
+                self.model_layers[l].append(self.get_random_model(l, model_inputs, model_output))
 
 
     def get_next_n_id(self, l):
@@ -348,7 +376,8 @@ class Stack():
     def get_random_model(self, l_id, input_nodes=None, output_node=None):
         model_index = random.randint(0, num_of_models -1)
 
-        possible_models = ['AdaBoostClassifierModel',
+        possible_models = [
+                            'AdaBoostClassifierModel',
                            'RandomForestClassifierModel',
                            'ExtraTreesClassifierModel',
                            'GradientBoostingClassifierModel',
@@ -539,13 +568,19 @@ class XGBoosterModel(Model):
 
     def __init__(self, l_id, input_nodes = None, output_node = None):
         super().__init__( l_id, input_nodes = input_nodes, output_node = output_node)
-        self.hyperparam_ranges = {'eta': [.01,.3],
-                                  'min_child_weight ': [1,5],
-                                  'max_depth': [3,10],
-                                  'subsample': [.5, 1],
-                                  'nthread':[12],
-                                  'silent':[1],
-                                  'verbose_eval':[False]}
+        self.hyperparam_ranges = {
+                                    'learning_rate': (0.001, 1.0),
+                                    'min_child_weight': (0, 10),
+                                    'max_depth': (0, 50),
+                                    'max_delta_step': (0, 20),
+                                    'subsample': (0.01, 1.0),
+                                    'colsample_bytree': (0.01, 1.0),
+                                    'colsample_bylevel': (0.01, 1.0),
+                                    'reg_lambda': (1e-9, 1000),
+                                    'reg_alpha': (1e-9, 1.0),
+                                    'gamma': (1e-9, 0.5),
+                                    'n_estimators': (50, 200)
+                                }
         self.set_hyperparameters = dict()
         #self.clf = xgb.Booster(params=self.get_random_hyperparameters())
 
@@ -607,16 +642,20 @@ class LGBMRegressorModel(Model):
     def __init__(self, l_id, input_nodes = None, output_node = None):
         super().__init__( l_id, input_nodes = input_nodes, output_node = output_node)
         self.hyperparam_ranges = {
-                                'num_leaves': [15, 31, 63],
-                                'objective': 'binary',
-                                'min_data_in_leaf': [10, 200],
-                                'learning_rate': [.01, .2],
-                                'bagging_fraction': [.7, .9],
-                                'bagging_freq': [2],
-                                'num_threads': [12],
-                                'scale_pos_weight':[.5, 2.0],
-                                'silent':[True]
-                            }
+                                    'learning_rate': (0.001, 1.0),
+                                    'num_leaves': (2, 300),
+                                    'max_depth': (2, 50),
+                                    'min_data_in_leaf': (1, 50),
+                                    'max_bin': (100, 1000),
+                                    'subsample': (0.01, 1.0),
+                                    'subsample_freq': (0, 10),
+                                    'colsample_bytree': (0.01, 1.0),
+                                    'min_child_weight': (1, 10),
+                                    'subsample_for_bin': (100000, 500000),
+                                    'reg_lambda': (1e-9, 1000),
+                                    'reg_alpha': (1e-9, 1.0),
+                                    'n_estimators': (50, 150),
+                                }
         self.set_hyperparameters = dict()
         #self.clf = lgb.Booster(params = self.get_random_hyperparameters())
 
@@ -680,7 +719,7 @@ def test_income_dataset():
 
 
 def test_graph():
-    with open('model_stacking_save_dir/13.plk', 'rb') as infile:
+    with open('model_stacking_save_dir/483.plk', 'rb') as infile:
         stack = pickle.load(infile)
 
     stack.generate_dot_file()
@@ -874,16 +913,74 @@ def test_titanic():
     test_df['Survived'] = test_df['Survived'].apply(lambda x: 1 if x == 0 else 0)
     test_df.to_csv('titanic_preds.csv', index = False)
 
+    stack.del_models()
 
 
+def preproccess(x, models):
+
+    if not models:
+        models = []
+        training_set = x.as_matrix()
+        training_set2 = x.as_matrix()
+        np.random.shuffle(training_set)
+        x_splits = np.array_split(training_set, 100)
+
+        for count, i in enumerate(x_splits):
+            cluster_num = random.randint(10, 25)
+            model = MiniBatchKMeans(n_clusters=cluster_num)
+            model.fit(training_set)
+            models.append(model)
+            print('training', count)
+
+        for count, m in enumerate(models):
+            x[count] = m.predict(training_set2)
+            print('predicting', count)
+
+    else:
+        training_set = x.as_matrix()
+        for count, m in enumerate(models):
+            x[count] = m.predict(training_set)
+
+    return x.as_matrix(), models
+
+
+def test_numerai():
+
+    path = r'C:\Users\tdelforge\Documents\Kaggle_datasets\numerai\numerai_datasets/'
+    training_data = pd.read_csv(path + 'numerai_training_data.csv', header=0)
+    prediction_data = pd.read_csv(path + 'numerai_tournament_data.csv', header=0)
+
+    # Transform the loaded CSV data into numpy arrays
+    features = [f for f in list(training_data) if "feature" in f]
+
+    x = training_data[features]
+    # x, cluster_models = preproccess(x, None)
+    # y = training_data["target"]
+    x = x.as_matrix()
+    y = training_data["target"].as_matrix()
+
+
+    Builder(x=x, y=y)
+    with open('model_stacking_save_dir/2.plk', 'rb') as infile:
+        stack = pickle.load(infile)
+
+    x_prediction = prediction_data[features]
+    # x_prediction, cluster_models = preproccess(x_prediction, cluster_models)
+    x_prediction = x_prediction.as_matrix()
+    ids = prediction_data["id"]
+
+    stack.load_models()
+    stack.train(x, y)
+    ids['probability'] = stack.predict(x_prediction)
     stack.del_models()
 
 
 
 if __name__ == '__main__':
-    #test_income_dataset()
-    test_graph()
+    # test_income_dataset()
+    #test_graph()
     #compare_best_model()
     #test_titanic()
     # compare_best_model2()
+    test_numerai()
 
