@@ -153,7 +153,7 @@ class Stack():
         remove model if valid to do so
         '''
         if stack_copy.get_model_count() >= 2 and del_model == 1:
-            stack_copy.reset_model()
+            stack_copy.remove_random_model()
 
 
         '''
@@ -204,7 +204,7 @@ class Stack():
                 model_to_modify.input_nodes.remove(random.choice(model_to_modify.input_nodes))
 
 
-    def remove_model(self):
+    def remove_random_model(self):
         model_list = self.get_model_list()
         model_list.remove(self.model_layers[-1][0])
         if len(model_list) > 0:
@@ -975,9 +975,9 @@ def test_numerai(generations = 200):
     x = training_data[features]
     x, cluster_models = preproccess(x, None)
     y = training_data["target"].as_matrix()
-
-    Builder(x=x, y=y, max_generations=generations)
-    with open('model_stacking_save_dir/{0}.plk'.format(generations), 'rb') as infile:
+    #
+    # Builder(x=x, y=y, max_generations=generations)
+    with open('model_stacking_save_dir/3.plk'.format(generations), 'rb') as infile:
         stack = pickle.load(infile)
 
     x_prediction = prediction_data[features]
@@ -987,6 +987,9 @@ def test_numerai(generations = 200):
     stack.load_models()
     stack.train(x, y)
     ids['probability'] = stack.predict(x_prediction)
+
+    ids.loc[ids['probability'] <= .301]['probability'] = .301
+    ids.loc[ids['probability'] >= .699]['probability'] = .699
     stack.del_models()
     ids.to_csv("predictions.csv", index=False)
 
@@ -994,9 +997,19 @@ def test_numerai(generations = 200):
 
 if __name__ == '__main__':
     # test_income_dataset()
-    # test_graph(1)
-    #compare_best_model()
+    # test_graph(3)
+    # compare_best_model()
     # test_titanic()
     # compare_best_model2()
-    test_numerai()
+    # test_numerai()
+
+    ids = pd.read_csv("predictions.csv")
+
+
+    ids['probability'] = ids['probability'].apply(lambda x: '.699' if float(x) > .699 else x)
+    ids['probability'] = ids['probability'].apply(lambda x: '.301' if float(x) < .301 else x)
+    ids['probability'] = ids['probability'].apply(lambda x: round(float(x), 3))
+    ids.to_csv("predictions.csv", index=False)
+
+    print(ids.describe())
 
